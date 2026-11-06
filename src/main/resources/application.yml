@@ -11,6 +11,11 @@ spring:
 server:
   port: 5000
 
+product-api:
+  base-url: http://localhost:3001
+  connect-timeout: 5s
+  read-timeout: 60s
+
 management:
   endpoints:
     web:

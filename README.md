@@ -38,7 +38,17 @@ Los mocks responden en `http://localhost:3001` y los resultados se ven en [Grafa
 
 ## Stack
 
-Java 25 · Spring Boot 4 (Spring MVC con virtual threads) · Actuator · Maven.
+Java 25 · Spring Boot 4 (Spring MVC con virtual threads, RestClient) · Actuator · Maven · JUnit 5 + AssertJ + WireMock.
+
+## Configuración
+
+En [application.yml](src/main/resources/application.yml). Cada propiedad se puede sobrescribir con su variable de entorno, por ejemplo `PRODUCT_API_BASE_URL`.
+
+| Propiedad                     | Valor por defecto       | Descripción                               |
+| ----------------------------- | ----------------------- | ----------------------------------------- |
+| `product-api.base-url`        | `http://localhost:3001` | URL de los APIs de producto existentes    |
+| `product-api.connect-timeout` | `5s`                    | Tiempo máximo para establecer la conexión |
+| `product-api.read-timeout`    | `60s`                   | Tiempo máximo de espera de la respuesta   |
 
 ## Estructura
 
@@ -56,3 +66,5 @@ Arquitectura hexagonal ligera: el dominio no conoce HTTP ni Spring, y cada API e
 
 - **Spring MVC con virtual threads.** Las llamadas a los APIs de producto pueden tardar; con virtual threads, una petición que espera respuesta no bloquea un hilo del sistema, y el código sigue siendo secuencial y fácil de leer.
 - **Errores como Problem Details (RFC 9457)**, el formato estándar que Spring Boot ya soporta.
+- **Timeouts explícitos en las llamadas a los APIs de producto.** Por defecto el cliente HTTP espera indefinidamente; se parte de un margen amplio (60 s) que se ajustará con el test de rendimiento.
+- **El cliente traduce las respuestas HTTP al dominio y no decide nada más:** un 404 es "producto no encontrado"; un 5xx, un timeout o un fallo de conexión es "servicio no disponible". Qué hacer en cada caso lo decide el caso de uso.
