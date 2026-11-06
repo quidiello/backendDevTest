@@ -5,8 +5,11 @@ import com.nunegal.similarproducts.domain.ProductNotFoundException;
 import com.nunegal.similarproducts.domain.ProductRepository;
 import com.nunegal.similarproducts.domain.ProductServiceUnavailableException;
 import java.net.http.HttpClient;
+import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.TimeUnit;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
@@ -21,6 +24,8 @@ public class ProductApiClient implements ProductRepository {
     };
 
     private final RestClient restClient;
+    private final Semaphore slots;
+    private final Duration maxWaitForSlot;
 
     public ProductApiClient(RestClient.Builder restClientBuilder, ProductApiProperties properties) {
         var httpClient = HttpClient.newBuilder()
@@ -33,10 +38,13 @@ public class ProductApiClient implements ProductRepository {
                 .baseUrl(properties.baseUrl().toString())
                 .requestFactory(requestFactory)
                 .build();
+        this.slots = new Semaphore(properties.maxConcurrentRequests());
+        this.maxWaitForSlot = properties.maxWaitForSlot();
     }
 
     @Override
     public List<String> findSimilarIds(String productId) {
+        acquireSlot();
         try {
             return restClient.get()
                     .uri("/product/{productId}/similarids", productId)
@@ -46,11 +54,14 @@ public class ProductApiClient implements ProductRepository {
             throw new ProductNotFoundException(productId);
         } catch (RestClientException e) {
             throw new ProductServiceUnavailableException("Could not get similar ids for product " + productId, e);
+        } finally {
+            slots.release();
         }
     }
 
     @Override
     public Optional<ProductDetail> findById(String productId) {
+        acquireSlot();
         try {
             return Optional.ofNullable(restClient.get()
                     .uri("/product/{productId}", productId)
@@ -60,6 +71,19 @@ public class ProductApiClient implements ProductRepository {
             return Optional.empty();
         } catch (RestClientException e) {
             throw new ProductServiceUnavailableException("Could not get detail of product " + productId, e);
+        } finally {
+            slots.release();
+        }
+    }
+
+    private void acquireSlot() {
+        try {
+            if (!slots.tryAcquire(maxWaitForSlot.toMillis(), TimeUnit.MILLISECONDS)) {
+                throw new ProductServiceUnavailableException("No free slot to call the product API");
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new ProductServiceUnavailableException("Interrupted while waiting for a slot", e);
         }
     }
 }
