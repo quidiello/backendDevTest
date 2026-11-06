@@ -7,6 +7,10 @@ spring:
   mvc:
     problemdetails:
       enabled: true
+  cache:
+    cache-names: similar-ids, product-details
+    caffeine:
+      spec: maximumSize=100000,expireAfterWrite=5m
 
 server:
   port: 5000

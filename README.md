@@ -51,6 +51,7 @@ En [application.yml](src/main/resources/application.yml). Cada propiedad se pued
 | `product-api.read-timeout`            | `10s`                   | Tiempo máximo de espera de la respuesta              |
 | `product-api.max-concurrent-requests` | `300`                   | Llamadas simultáneas máximas a los APIs de producto  |
 | `product-api.max-wait-for-slot`       | `1s`                    | Espera máxima por una plaza libre antes de desistir  |
+| `spring.cache.caffeine.spec`          | `maximumSize=100000,expireAfterWrite=5m` | Tamaño máximo y tiempo de vida de la caché |
 
 ## Estructura
 
@@ -72,6 +73,8 @@ Arquitectura hexagonal ligera: el dominio no conoce HTTP ni Spring, y cada API e
 - **El cliente traduce las respuestas HTTP al dominio y no decide nada más:** un 404 es "producto no encontrado"; un 5xx, un timeout o un fallo de conexión es "servicio no disponible". Qué hacer en cada caso lo decide el caso de uso.
 - **Los detalles de los similares se piden en paralelo**, cada uno en un virtual thread, y la respuesta mantiene el orden de los ids. Así el tiempo de respuesta es el del similar más lento, no la suma de todos.
 - **Límite de llamadas simultáneas a los APIs de producto**, con un `Semaphore`. Protege al servicio del que dependemos frente a picos de tráfico y evita que las llamadas lentas se acumulen sin control. Si no hay plaza libre en el tiempo máximo de espera, la llamada se trata como "servicio no disponible". El valor (300) se fijó midiendo con el test de rendimiento.
+- **Caché en memoria (Caffeine) de las respuestas de los APIs de producto**, tanto de los ids similares como del detalle. Los mismos productos se piden constantemente, así que la mayoría de peticiones dejan de llegar al API. Se recuerda también que un producto no existe; los errores y timeouts no se guardan, para volver a intentarlo en la siguiente petición. El tiempo de vida (5 min) limita cuánto puede tardar en verse un cambio de precio o disponibilidad.
+- **Sin agrupar peticiones simultáneas del mismo producto en la caché.** Spring permite que, si varias peticiones piden a la vez un dato que no está en caché, solo una llame al API (`sync = true`). Se probó y se descartó: con un producto que siempre agota el timeout, las peticiones que esperaban lo reintentaban una detrás de otra y acumulaban esperas de 20–30 s. Hacerlo bien requeriría una caché asíncrona en la que todas compartan el mismo resultado, también el error; queda como mejora posible.
 - **Los productos similares que fallan se descartan.** Si el detalle de un similar no existe o no se puede obtener, se omite de la respuesta (queda registrado en el log) y se devuelven los demás en su orden. Es preferible mostrar parte de los similares a no mostrar ninguno.
 - **Códigos de respuesta.** 404 si el producto no existe, como indica el contrato. Si falla la consulta de los ids similares, 502 (Bad Gateway): el contrato no contempla este caso y es el código estándar cuando falla un servicio del que se depende.
 - **Controller escrito a mano.** Con un único endpoint es lo más claro; con más endpoints, generaría la interfaz y los modelos a partir del contrato OpenAPI (API-first) para que código y contrato no se desincronicen.

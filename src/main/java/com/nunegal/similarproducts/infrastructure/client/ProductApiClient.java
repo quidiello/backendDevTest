@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
@@ -43,6 +44,7 @@ public class ProductApiClient implements ProductRepository {
     }
 
     @Override
+    @Cacheable(cacheNames = "similar-ids")
     public List<String> findSimilarIds(String productId) {
         acquireSlot();
         try {
@@ -60,6 +62,7 @@ public class ProductApiClient implements ProductRepository {
     }
 
     @Override
+    @Cacheable(cacheNames = "product-details")
     public Optional<ProductDetail> findById(String productId) {
         acquireSlot();
         try {
