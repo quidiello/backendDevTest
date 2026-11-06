@@ -2,6 +2,7 @@ package com.nunegal.similarproducts.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
 
 import com.nunegal.similarproducts.domain.ProductDetail;
@@ -10,7 +11,10 @@ import com.nunegal.similarproducts.domain.ProductRepository;
 import com.nunegal.similarproducts.domain.ProductServiceUnavailableException;
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -40,6 +44,33 @@ class SimilarProductsServiceTest {
         when(productRepository.findById("2")).thenReturn(Optional.of(DRESS));
         when(productRepository.findById("3")).thenReturn(Optional.of(BLAZER));
         when(productRepository.findById("4")).thenReturn(Optional.of(BOOTS));
+
+        assertThat(service.findSimilarProducts("1")).containsExactly(BOOTS, DRESS, BLAZER);
+    }
+
+    @Test
+    void requestsTheDetailsOfAllSimilarProductsAtTheSameTime() {
+        var allRequested = new CountDownLatch(3);
+        var products = Map.of("2", DRESS, "3", BLAZER, "4", BOOTS);
+        when(productRepository.findSimilarIds("1")).thenReturn(List.of("2", "3", "4"));
+        when(productRepository.findById(anyString())).thenAnswer(invocation -> {
+            allRequested.countDown();
+            var requestedTogether = allRequested.await(1, TimeUnit.SECONDS);
+            return requestedTogether ? Optional.of(products.get(invocation.<String>getArgument(0))) : Optional.empty();
+        });
+
+        assertThat(service.findSimilarProducts("1")).containsExactly(DRESS, BLAZER, BOOTS);
+    }
+
+    @Test
+    void keepsTheOrderOfTheSimilarIdsWhenSomeDetailsTakeLonger() {
+        when(productRepository.findSimilarIds("1")).thenReturn(List.of("4", "2", "3"));
+        when(productRepository.findById("4")).thenAnswer(invocation -> {
+            Thread.sleep(200);
+            return Optional.of(BOOTS);
+        });
+        when(productRepository.findById("2")).thenReturn(Optional.of(DRESS));
+        when(productRepository.findById("3")).thenReturn(Optional.of(BLAZER));
 
         assertThat(service.findSimilarProducts("1")).containsExactly(BOOTS, DRESS, BLAZER);
     }

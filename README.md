@@ -68,6 +68,7 @@ Arquitectura hexagonal ligera: el dominio no conoce HTTP ni Spring, y cada API e
 - **Errores como Problem Details (RFC 9457)**, el formato estándar que Spring Boot ya soporta.
 - **Timeouts explícitos en las llamadas a los APIs de producto.** Por defecto el cliente HTTP espera indefinidamente; se parte de un margen amplio (60 s) que se ajustará con el test de rendimiento.
 - **El cliente traduce las respuestas HTTP al dominio y no decide nada más:** un 404 es "producto no encontrado"; un 5xx, un timeout o un fallo de conexión es "servicio no disponible". Qué hacer en cada caso lo decide el caso de uso.
+- **Los detalles de los similares se piden en paralelo**, cada uno en un virtual thread, y la respuesta mantiene el orden de los ids. Así el tiempo de respuesta es el del similar más lento, no la suma de todos.
 - **Los productos similares que fallan se descartan.** Si el detalle de un similar no existe o no se puede obtener, se omite de la respuesta (queda registrado en el log) y se devuelven los demás en su orden. Es preferible mostrar parte de los similares a no mostrar ninguno.
 - **Códigos de respuesta.** 404 si el producto no existe, como indica el contrato. Si falla la consulta de los ids similares, 502 (Bad Gateway): el contrato no contempla este caso y es el código estándar cuando falla un servicio del que se depende.
 - **Controller escrito a mano.** Con un único endpoint es lo más claro; con más endpoints, generaría la interfaz y los modelos a partir del contrato OpenAPI (API-first) para que código y contrato no se desincronicen.

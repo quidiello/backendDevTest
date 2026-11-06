@@ -5,6 +5,9 @@ import com.nunegal.similarproducts.domain.ProductRepository;
 import com.nunegal.similarproducts.domain.ProductServiceUnavailableException;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -15,14 +18,20 @@ public class SimilarProductsService {
     private static final Logger log = LoggerFactory.getLogger(SimilarProductsService.class);
 
     private final ProductRepository productRepository;
+    private final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
 
     public SimilarProductsService(ProductRepository productRepository) {
         this.productRepository = productRepository;
     }
 
     public List<ProductDetail> findSimilarProducts(String productId) {
-        return productRepository.findSimilarIds(productId).stream()
-                .map(this::findSimilarProduct)
+        // Collected before joining so every request is started before waiting for any of them.
+        var requests = productRepository.findSimilarIds(productId).stream()
+                .map(id -> CompletableFuture.supplyAsync(() -> findSimilarProduct(id), executor))
+                .toList();
+
+        return requests.stream()
+                .map(CompletableFuture::join)
                 .flatMap(Optional::stream)
                 .toList();
     }
