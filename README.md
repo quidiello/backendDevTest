@@ -48,7 +48,7 @@ En [application.yml](src/main/resources/application.yml). Cada propiedad se pued
 | ------------------------------------- | ----------------------- | ---------------------------------------------------- |
 | `product-api.base-url`                | `http://localhost:3001` | URL de los APIs de producto existentes               |
 | `product-api.connect-timeout`         | `5s`                    | Tiempo máximo para establecer la conexión            |
-| `product-api.read-timeout`            | `60s`                   | Tiempo máximo de espera de la respuesta              |
+| `product-api.read-timeout`            | `10s`                   | Tiempo máximo de espera de la respuesta              |
 | `product-api.max-concurrent-requests` | `300`                   | Llamadas simultáneas máximas a los APIs de producto  |
 | `product-api.max-wait-for-slot`       | `1s`                    | Espera máxima por una plaza libre antes de desistir  |
 
@@ -68,7 +68,7 @@ Arquitectura hexagonal ligera: el dominio no conoce HTTP ni Spring, y cada API e
 
 - **Spring MVC con virtual threads.** Las llamadas a los APIs de producto pueden tardar; con virtual threads, una petición que espera respuesta no bloquea un hilo del sistema, y el código sigue siendo secuencial y fácil de leer.
 - **Errores como Problem Details (RFC 9457)**, el formato estándar que Spring Boot ya soporta.
-- **Timeouts explícitos en las llamadas a los APIs de producto.** Por defecto el cliente HTTP espera indefinidamente; se parte de un margen amplio (60 s) que se ajustará con el test de rendimiento.
+- **Timeouts explícitos en las llamadas a los APIs de producto.** Por defecto el cliente HTTP espera indefinidamente. El de lectura (10 s) se fijó midiendo con el test de rendimiento: deja llegar las respuestas lentas pero razonables y solo descarta las claramente anómalas. Como los similares se piden en paralelo, es también lo máximo que puede tardar una respuesta cuando uno de ellos se queda colgado. Un valor más bajo daría respuestas más rápidas pero con más similares descartados; cuánto merece la pena esperar es una decisión de producto, por eso es configurable.
 - **El cliente traduce las respuestas HTTP al dominio y no decide nada más:** un 404 es "producto no encontrado"; un 5xx, un timeout o un fallo de conexión es "servicio no disponible". Qué hacer en cada caso lo decide el caso de uso.
 - **Los detalles de los similares se piden en paralelo**, cada uno en un virtual thread, y la respuesta mantiene el orden de los ids. Así el tiempo de respuesta es el del similar más lento, no la suma de todos.
 - **Límite de llamadas simultáneas a los APIs de producto**, con un `Semaphore`. Protege al servicio del que dependemos frente a picos de tráfico y evita que las llamadas lentas se acumulen sin control. Si no hay plaza libre en el tiempo máximo de espera, la llamada se trata como "servicio no disponible". El valor (300) se fijó midiendo con el test de rendimiento.

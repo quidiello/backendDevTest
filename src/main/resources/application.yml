@@ -14,7 +14,7 @@ server:
 product-api:
   base-url: http://localhost:3001
   connect-timeout: 5s
-  read-timeout: 60s
+  read-timeout: 10s
   max-concurrent-requests: 300
   max-wait-for-slot: 1s
 
