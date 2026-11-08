@@ -4,6 +4,7 @@ import com.nunegal.similarproducts.domain.ProductDetail;
 import com.nunegal.similarproducts.domain.ProductRepository;
 import com.nunegal.similarproducts.domain.ProductServiceUnavailableException;
 import io.micrometer.core.instrument.MeterRegistry;
+import jakarta.annotation.PreDestroy;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
@@ -43,15 +44,20 @@ public class SimilarProductsService {
         try {
             var product = productRepository.findById(productId);
             if (product.isEmpty()) {
-                log.warn("Skipping similar product {}: not found", productId);
+                log.debug("Skipping similar product {}: not found", productId);
                 countSkipped("not_found");
             }
             return product;
         } catch (ProductServiceUnavailableException e) {
-            log.warn("Skipping similar product {}: {}", productId, e.getMessage());
+            log.debug("Skipping similar product {}: {}", productId, e.getMessage());
             countSkipped("unavailable");
             return Optional.empty();
         }
+    }
+
+    @PreDestroy
+    void shutdown() {
+        executor.close();
     }
 
     private void countSkipped(String reason) {

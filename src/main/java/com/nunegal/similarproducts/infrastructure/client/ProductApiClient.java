@@ -12,6 +12,8 @@ import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.client.JdkClientHttpRequestFactory;
@@ -22,6 +24,8 @@ import org.springframework.web.client.RestClientException;
 
 @Component
 public class ProductApiClient implements ProductRepository {
+
+    private static final Logger log = LoggerFactory.getLogger(ProductApiClient.class);
 
     private static final ParameterizedTypeReference<List<String>> ID_LIST = new ParameterizedTypeReference<>() {
     };
@@ -54,10 +58,11 @@ public class ProductApiClient implements ProductRepository {
     public List<String> findSimilarIds(String productId) {
         acquireSlot();
         try {
-            return restClient.get()
+            var similarIds = restClient.get()
                     .uri("/product/{productId}/similarids", productId)
                     .retrieve()
                     .body(ID_LIST);
+            return similarIds != null ? similarIds : List.of();
         } catch (HttpClientErrorException.NotFound e) {
             throw new ProductNotFoundException(productId);
         } catch (RestClientException e) {
@@ -82,6 +87,7 @@ public class ProductApiClient implements ProductRepository {
         } catch (HttpClientErrorException.NotFound e) {
             return Optional.empty();
         } catch (RestClientException e) {
+            log.warn("Could not get detail of product {}: {}", productId, e.getMessage());
             recentlyFailed.put(productId, true);
             throw new ProductServiceUnavailableException("Could not get detail of product " + productId, e);
         } finally {
@@ -92,6 +98,7 @@ public class ProductApiClient implements ProductRepository {
     private void acquireSlot() {
         try {
             if (!slots.tryAcquire(maxWaitForSlot.toMillis(), TimeUnit.MILLISECONDS)) {
+                log.warn("No free slot to call the product API");
                 throw new ProductServiceUnavailableException("No free slot to call the product API");
             }
         } catch (InterruptedException e) {

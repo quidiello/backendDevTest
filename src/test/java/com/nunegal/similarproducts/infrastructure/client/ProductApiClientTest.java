@@ -6,6 +6,7 @@ import static com.github.tomakehurst.wiremock.client.WireMock.findAll;
 import static com.github.tomakehurst.wiremock.client.WireMock.get;
 import static com.github.tomakehurst.wiremock.client.WireMock.getRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.notFound;
+import static com.github.tomakehurst.wiremock.client.WireMock.ok;
 import static com.github.tomakehurst.wiremock.client.WireMock.okJson;
 import static com.github.tomakehurst.wiremock.client.WireMock.serverError;
 import static com.github.tomakehurst.wiremock.client.WireMock.stubFor;
@@ -56,6 +57,13 @@ class ProductApiClientTest {
         stubFor(get("/product/1/similarids").willReturn(okJson("[2,3,4]")));
 
         assertThat(client.findSimilarIds("1")).containsExactly("2", "3", "4");
+    }
+
+    @Test
+    void returnsNoSimilarIdsWhenTheApiSendsAnEmptyBody() {
+        stubFor(get("/product/1/similarids").willReturn(ok()));
+
+        assertThat(client.findSimilarIds("1")).isEmpty();
     }
 
     @Test
