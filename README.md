@@ -36,6 +36,8 @@ docker compose run --rm k6 run scripts/test.js
 
 Los mocks responden en `http://localhost:3001` y los resultados se ven en [Grafana](http://localhost:3000/d/Le2Ku9NMk/k6-performance-test).
 
+Para comparar ejecuciones, conviene reiniciar el mock antes de cada una (`docker compose restart simulado`): arrastra las respuestas lentas pendientes de la ejecución anterior y los resultados salen peores.
+
 ## Stack
 
 Java 25 · Spring Boot 4 (Spring MVC con virtual threads, RestClient, Actuator) · Caffeine · Micrometer · Maven · JUnit 5 + AssertJ + Mockito + WireMock.
