@@ -3,6 +3,7 @@ package com.nunegal.similarproducts.application;
 import com.nunegal.similarproducts.domain.ProductDetail;
 import com.nunegal.similarproducts.domain.ProductRepository;
 import com.nunegal.similarproducts.domain.ProductServiceUnavailableException;
+import io.micrometer.core.instrument.MeterRegistry;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
@@ -18,10 +19,12 @@ public class SimilarProductsService {
     private static final Logger log = LoggerFactory.getLogger(SimilarProductsService.class);
 
     private final ProductRepository productRepository;
+    private final MeterRegistry meterRegistry;
     private final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
 
-    public SimilarProductsService(ProductRepository productRepository) {
+    public SimilarProductsService(ProductRepository productRepository, MeterRegistry meterRegistry) {
         this.productRepository = productRepository;
+        this.meterRegistry = meterRegistry;
     }
 
     public List<ProductDetail> findSimilarProducts(String productId) {
@@ -41,11 +44,17 @@ public class SimilarProductsService {
             var product = productRepository.findById(productId);
             if (product.isEmpty()) {
                 log.warn("Skipping similar product {}: not found", productId);
+                countSkipped("not_found");
             }
             return product;
         } catch (ProductServiceUnavailableException e) {
             log.warn("Skipping similar product {}: {}", productId, e.getMessage());
+            countSkipped("unavailable");
             return Optional.empty();
         }
+    }
+
+    private void countSkipped(String reason) {
+        meterRegistry.counter("similar.products.skipped", "reason", reason).increment();
     }
 }

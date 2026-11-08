@@ -9,6 +9,7 @@ import com.nunegal.similarproducts.domain.ProductDetail;
 import com.nunegal.similarproducts.domain.ProductNotFoundException;
 import com.nunegal.similarproducts.domain.ProductRepository;
 import com.nunegal.similarproducts.domain.ProductServiceUnavailableException;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
@@ -31,11 +32,13 @@ class SimilarProductsServiceTest {
     @Mock
     private ProductRepository productRepository;
 
+    private final SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
+
     private SimilarProductsService service;
 
     @BeforeEach
     void setUp() {
-        service = new SimilarProductsService(productRepository);
+        service = new SimilarProductsService(productRepository, meterRegistry);
     }
 
     @Test
@@ -104,6 +107,32 @@ class SimilarProductsServiceTest {
     }
 
     @Test
+    void countsTheSkippedSimilarProductsByReason() {
+        when(productRepository.findSimilarIds("1")).thenReturn(List.of("2", "5", "6", "7"));
+        when(productRepository.findById("2")).thenReturn(Optional.of(DRESS));
+        when(productRepository.findById("5")).thenReturn(Optional.empty());
+        when(productRepository.findById("6"))
+                .thenThrow(new ProductServiceUnavailableException("boom", new RuntimeException()));
+        when(productRepository.findById("7"))
+                .thenThrow(new ProductServiceUnavailableException("boom", new RuntimeException()));
+
+        service.findSimilarProducts("1");
+
+        assertThat(skipped("not_found")).isEqualTo(1);
+        assertThat(skipped("unavailable")).isEqualTo(2);
+    }
+
+    @Test
+    void doesNotCountSimilarProductsThatAreReturned() {
+        when(productRepository.findSimilarIds("1")).thenReturn(List.of("2"));
+        when(productRepository.findById("2")).thenReturn(Optional.of(DRESS));
+
+        service.findSimilarProducts("1");
+
+        assertThat(meterRegistry.find("similar.products.skipped").counters()).isEmpty();
+    }
+
+    @Test
     void throwsNotFoundWhenTheProductDoesNotExist() {
         when(productRepository.findSimilarIds("7")).thenThrow(new ProductNotFoundException("7"));
 
@@ -118,5 +147,9 @@ class SimilarProductsServiceTest {
 
         assertThatThrownBy(() -> service.findSimilarProducts("1"))
                 .isInstanceOf(ProductServiceUnavailableException.class);
+    }
+
+    private double skipped(String reason) {
+        return meterRegistry.get("similar.products.skipped").tag("reason", reason).counter().count();
     }
 }
