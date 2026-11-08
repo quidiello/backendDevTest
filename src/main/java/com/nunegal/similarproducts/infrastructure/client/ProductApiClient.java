@@ -1,5 +1,7 @@
 package com.nunegal.similarproducts.infrastructure.client;
 
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import com.nunegal.similarproducts.domain.ProductDetail;
 import com.nunegal.similarproducts.domain.ProductNotFoundException;
 import com.nunegal.similarproducts.domain.ProductRepository;
@@ -27,6 +29,7 @@ public class ProductApiClient implements ProductRepository {
     private final RestClient restClient;
     private final Semaphore slots;
     private final Duration maxWaitForSlot;
+    private final Cache<String, Boolean> recentlyFailed;
 
     public ProductApiClient(RestClient.Builder restClientBuilder, ProductApiProperties properties) {
         var httpClient = HttpClient.newBuilder()
@@ -41,6 +44,9 @@ public class ProductApiClient implements ProductRepository {
                 .build();
         this.slots = new Semaphore(properties.maxConcurrentRequests());
         this.maxWaitForSlot = properties.maxWaitForSlot();
+        this.recentlyFailed = Caffeine.newBuilder()
+                .expireAfterWrite(properties.failureTtl())
+                .build();
     }
 
     @Override
@@ -64,6 +70,9 @@ public class ProductApiClient implements ProductRepository {
     @Override
     @Cacheable(cacheNames = "product-details")
     public Optional<ProductDetail> findById(String productId) {
+        if (recentlyFailed.getIfPresent(productId) != null) {
+            throw new ProductServiceUnavailableException("Detail of product " + productId + " failed recently");
+        }
         acquireSlot();
         try {
             return Optional.ofNullable(restClient.get()
@@ -73,6 +82,7 @@ public class ProductApiClient implements ProductRepository {
         } catch (HttpClientErrorException.NotFound e) {
             return Optional.empty();
         } catch (RestClientException e) {
+            recentlyFailed.put(productId, true);
             throw new ProductServiceUnavailableException("Could not get detail of product " + productId, e);
         } finally {
             slots.release();

@@ -35,6 +35,8 @@ class ProductApiClientCacheTest {
     @DynamicPropertySource
     static void productApiProperties(DynamicPropertyRegistry registry) {
         registry.add("product-api.base-url", productApi::baseUrl);
+        // Failures are remembered by the client itself; disabled here to test only the Spring cache.
+        registry.add("product-api.failure-ttl", () -> "0s");
     }
 
     @Autowired

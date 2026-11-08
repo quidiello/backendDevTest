@@ -10,6 +10,7 @@ import static com.github.tomakehurst.wiremock.client.WireMock.okJson;
 import static com.github.tomakehurst.wiremock.client.WireMock.serverError;
 import static com.github.tomakehurst.wiremock.client.WireMock.stubFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlEqualTo;
+import static com.github.tomakehurst.wiremock.client.WireMock.verify;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -32,6 +33,7 @@ class ProductApiClientTest {
 
     private static final Duration READ_TIMEOUT = Duration.ofMillis(500);
     private static final Duration MAX_WAIT_FOR_SLOT = Duration.ofMillis(100);
+    private static final Duration FAILURE_TTL = Duration.ofMillis(300);
 
     private URI baseUrl;
     private ProductApiClient client;
@@ -170,9 +172,51 @@ class ProductApiClientTest {
         assertThat(singleSlotClient.findById("1")).isPresent();
     }
 
+    @Test
+    void doesNotCallTheApiAgainForAProductThatJustFailed() {
+        stubFor(get("/product/6").willReturn(serverError()));
+
+        assertThatThrownBy(() -> client.findById("6"))
+                .isInstanceOf(ProductServiceUnavailableException.class);
+        assertThatThrownBy(() -> client.findById("6"))
+                .isInstanceOf(ProductServiceUnavailableException.class);
+
+        verify(1, getRequestedFor(urlEqualTo("/product/6")));
+    }
+
+    @Test
+    void callsTheApiAgainOnceTheFailureIsForgotten() throws InterruptedException {
+        stubFor(get("/product/1").willReturn(serverError()));
+        assertThatThrownBy(() -> client.findById("1"))
+                .isInstanceOf(ProductServiceUnavailableException.class);
+
+        stubFor(get("/product/1").willReturn(okJson(
+                "{\"id\":\"1\",\"name\":\"Shirt\",\"price\":9.99,\"availability\":true}")));
+        Thread.sleep(FAILURE_TTL.multipliedBy(2).toMillis());
+
+        assertThat(client.findById("1")).isPresent();
+    }
+
+    @Test
+    void doesNotRememberAProductThatFoundNoFreeSlot() throws InterruptedException {
+        var singleSlotClient = clientWithMaxConcurrentRequests(1);
+        stubFor(get("/product/100").willReturn(okJson(
+                "{\"id\":\"100\",\"name\":\"Trousers\",\"price\":49.99,\"availability\":false}")
+                .withFixedDelay((int) MAX_WAIT_FOR_SLOT.multipliedBy(3).toMillis())));
+        stubFor(get("/product/1").willReturn(okJson(
+                "{\"id\":\"1\",\"name\":\"Shirt\",\"price\":9.99,\"availability\":true}")));
+        var slowCall = CompletableFuture.runAsync(() -> singleSlotClient.findById("100"));
+        awaitRequestTo("/product/100");
+        assertThatThrownBy(() -> singleSlotClient.findById("1"))
+                .isInstanceOf(ProductServiceUnavailableException.class);
+        slowCall.join();
+
+        assertThat(singleSlotClient.findById("1")).isPresent();
+    }
+
     private ProductApiClient clientWithMaxConcurrentRequests(int maxConcurrentRequests) {
-        var properties = new ProductApiProperties(
-                baseUrl, Duration.ofSeconds(1), READ_TIMEOUT, maxConcurrentRequests, MAX_WAIT_FOR_SLOT);
+        var properties = new ProductApiProperties(baseUrl, Duration.ofSeconds(1), READ_TIMEOUT,
+                maxConcurrentRequests, MAX_WAIT_FOR_SLOT, FAILURE_TTL);
         return new ProductApiClient(RestClient.builder(), properties);
     }
 

@@ -14,5 +14,6 @@ public record ProductApiProperties(
         @NotNull Duration connectTimeout,
         @NotNull Duration readTimeout,
         @Positive int maxConcurrentRequests,
-        @NotNull Duration maxWaitForSlot) {
+        @NotNull Duration maxWaitForSlot,
+        @NotNull Duration failureTtl) {
 }

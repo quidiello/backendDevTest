@@ -21,6 +21,7 @@ product-api:
   read-timeout: 6s
   max-concurrent-requests: 600
   max-wait-for-slot: 1s
+  failure-ttl: 30s
 
 management:
   endpoints:

@@ -55,10 +55,12 @@ Cada celda tiene dos valores, `peticiones completadas · tiempo medio de respues
 | Timeout de lectura (10 s) | 2878 · 204 ms | 442 · 4,8 s | 327 · 7,1 s |
 | Caché | 3799 · 42 ms | 1898 · 0,6 s | 200 · 10,1 s |
 | Ajuste de timeout y límite (6 s, 600) | 3799 · 32 ms | 2000 · 0,5 s | 400 · 6,0 s |
+| Recordar los fallos (30 s) | 3712 · 46 ms | 2000 · 0,5 s | 1600 · 0,8 s |
 
 - Sin timeout, las peticiones de `verySlow` no terminan durante el test.
 - Con el límite, parte de las respuestas de `verySlow` son rápidas porque descartan similares por falta de plaza. Con la caché casi todas las llamadas se resuelven en memoria, apenas faltan plazas y las respuestas de `verySlow` tardan lo que el timeout.
 - El ajuste final se eligió probando varias combinaciones de timeout y límite: es la que no descarta similares válidos y responde antes.
+- Al recordar los fallos, solo la primera ráfaga de `verySlow` espera el timeout; las siguientes descartan al momento el producto que no responde.
 
 ## Stack
 
@@ -75,6 +77,7 @@ En [application.yml](src/main/resources/application.yml). Cada propiedad se pued
 | `product-api.read-timeout`            | `6s`                    | Tiempo máximo de espera de la respuesta              |
 | `product-api.max-concurrent-requests` | `600`                   | Llamadas simultáneas máximas a los APIs de producto  |
 | `product-api.max-wait-for-slot`       | `1s`                    | Espera máxima por una plaza libre antes de desistir  |
+| `product-api.failure-ttl`             | `30s`                   | Tiempo durante el que no se vuelve a pedir el detalle de un producto que ha fallado |
 | `spring.cache.caffeine.spec`          | `maximumSize=100000,expireAfterWrite=5m` | Tamaño máximo y tiempo de vida de la caché |
 
 ## Estructura
@@ -117,6 +120,7 @@ src/main/java/com/nunegal/similarproducts/
 - **Límite de llamadas simultáneas a los APIs de producto**, con un `Semaphore`. Protege al servicio del que dependemos frente a picos de tráfico y evita que las llamadas lentas se acumulen sin control. Si no hay plaza libre en el tiempo máximo de espera, la llamada se trata como "servicio no disponible". El valor (600) se fijó midiendo con el test de rendimiento: cubre el pico de llamadas del test sin descartar productos válidos. Con un servicio real se ajustaría a la capacidad de ese servicio.
 - **Caché en memoria (Caffeine) de las respuestas de los APIs de producto**, tanto de los ids similares como del detalle. Los mismos productos se piden constantemente, así que la mayoría de peticiones dejan de llegar al API. Se recuerda también que un producto no existe; los errores y timeouts no se guardan, para volver a intentarlo en la siguiente petición. El tiempo de vida (5 min) limita cuánto puede tardar en verse un cambio de precio o disponibilidad.
 - **Sin agrupar peticiones simultáneas del mismo producto en la caché.** Spring permite que, si varias peticiones piden a la vez un dato que no está en caché, solo una llame al API (`sync = true`). Se probó y se descartó: con un producto que siempre agota el timeout, las peticiones que esperaban lo reintentaban una detrás de otra y acumulaban esperas de 20–30 s.
+- **Se recuerda durante un tiempo corto (30 s) que el detalle de un producto ha fallado** por timeout o error del API, y mientras tanto ese similar se descarta sin llamar al API. Así un producto que no responde solo hace esperar a las primeras peticiones, no a todas. Quedarse sin plaza no cuenta como fallo del producto. El precio es que un fallo puntual oculta el producto durante ese tiempo, por eso es corto y configurable.
 - **Los productos similares que fallan se descartan.** Si el detalle de un similar no existe o no se puede obtener, se omite de la respuesta y se devuelven los demás en su orden. Es preferible mostrar parte de los similares a no mostrar ninguno.
 - **Los similares descartados quedan en el log y en una métrica.** El log da el detalle de cada caso (qué producto y por qué); la métrica `similar.products.skipped`, con el motivo (`not_found` o `unavailable`) como etiqueta, permite vigilar cuántos se descartan. Se consulta en `/actuator/metrics/similar.products.skipped`.
 
