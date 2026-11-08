@@ -38,7 +38,7 @@ Los mocks responden en `http://localhost:3001` y los resultados se ven en [Grafa
 
 ## Stack
 
-Java 25 · Spring Boot 4 (Spring MVC con virtual threads, RestClient) · Actuator · Maven · JUnit 5 + AssertJ + WireMock.
+Java 25 · Spring Boot 4 (Spring MVC con virtual threads, RestClient, Actuator) · Caffeine · Micrometer · Maven · JUnit 5 + AssertJ + Mockito + WireMock.
 
 ## Configuración
 
@@ -63,19 +63,42 @@ src/main/java/com/nunegal/similarproducts/
   infrastructure/client/   adaptador de salida: cliente de los APIs existentes
 ```
 
-Arquitectura hexagonal ligera: el dominio no conoce HTTP ni Spring, y cada API externa queda detrás de un adaptador que se puede probar o sustituir por separado.
+## Tests
+
+`./mvnw test` lanza todos. Cada nivel se prueba por separado:
+
+| Test | Qué prueba |
+| ---- | ---------- |
+| `SimilarProductsServiceTest` | El caso de uso, con el repositorio simulado con Mockito: orden, llamadas en paralelo, similares descartados y la métrica |
+| `ProductApiClientTest` | El cliente contra un API simulado con WireMock: respuestas, errores, timeouts y el límite de llamadas simultáneas |
+| `ProductApiClientCacheTest` | Qué se guarda en la caché y qué no |
+| `SimilarProductsControllerTest` | El endpoint: respuesta y códigos de error |
+| `SimilarProductsIntegrationTest` | De extremo a extremo, con la aplicación completa y los APIs simulados con WireMock |
 
 ## Decisiones
 
+### Diseño
+
+- **Arquitectura hexagonal ligera.** El dominio no conoce HTTP ni Spring; el caso de uso trabaja contra un puerto (`ProductRepository`) y el cliente HTTP es solo una implementación de ese puerto, que se puede probar o sustituir por separado.
 - **Spring MVC con virtual threads.** Las llamadas a los APIs de producto pueden tardar; con virtual threads, una petición que espera respuesta no bloquea un hilo del sistema, y el código sigue siendo secuencial y fácil de leer.
-- **Errores como Problem Details (RFC 9457)**, el formato estándar que Spring Boot ya soporta.
-- **Timeouts explícitos en las llamadas a los APIs de producto.** Por defecto el cliente HTTP espera indefinidamente. El de lectura (6 s) se fijó midiendo con el test de rendimiento: deja llegar las respuestas lentas pero razonables de los mocks (5 s) y solo descarta las claramente anómalas. Con un servicio real se fijaría a partir de sus tiempos de respuesta observados. Como los similares se piden en paralelo, es también lo máximo que puede tardar una respuesta cuando uno de ellos se queda colgado. Un valor más bajo daría respuestas más rápidas pero con más similares descartados; cuánto merece la pena esperar es una decisión de producto, por eso es configurable.
 - **El cliente traduce las respuestas HTTP al dominio y no decide nada más:** un 404 es "producto no encontrado"; un 5xx, un timeout o un fallo de conexión es "servicio no disponible". Qué hacer en cada caso lo decide el caso de uso.
+- **Códigos de respuesta.** 404 si el producto no existe, como indica el contrato. Si falla la consulta de los ids similares, 502 (Bad Gateway): el contrato no contempla este caso y es el código estándar cuando falla un servicio del que se depende.
+- **Errores como Problem Details (RFC 9457)**, el formato estándar que Spring Boot ya soporta.
+- **Controller escrito a mano.** Con un único endpoint es lo más claro.
+
+### Rendimiento y resiliencia
+
+- **Timeouts explícitos en las llamadas a los APIs de producto.** Por defecto el cliente HTTP espera indefinidamente. El de lectura (6 s) se fijó midiendo con el test de rendimiento: deja llegar las respuestas lentas pero razonables de los mocks (5 s) y descarta las anómalas; con un servicio real se fijaría a partir de sus tiempos de respuesta. Es también lo máximo que puede tardar una respuesta cuando un similar se queda colgado. Cuánto merece la pena esperar es una decisión de producto, por eso es configurable.
 - **Los detalles de los similares se piden en paralelo**, cada uno en un virtual thread, y la respuesta mantiene el orden de los ids. Así el tiempo de respuesta es el del similar más lento, no la suma de todos.
 - **Límite de llamadas simultáneas a los APIs de producto**, con un `Semaphore`. Protege al servicio del que dependemos frente a picos de tráfico y evita que las llamadas lentas se acumulen sin control. Si no hay plaza libre en el tiempo máximo de espera, la llamada se trata como "servicio no disponible". El valor (600) se fijó midiendo con el test de rendimiento: cubre el pico de llamadas del test sin descartar productos válidos. Con un servicio real se ajustaría a la capacidad de ese servicio.
 - **Caché en memoria (Caffeine) de las respuestas de los APIs de producto**, tanto de los ids similares como del detalle. Los mismos productos se piden constantemente, así que la mayoría de peticiones dejan de llegar al API. Se recuerda también que un producto no existe; los errores y timeouts no se guardan, para volver a intentarlo en la siguiente petición. El tiempo de vida (5 min) limita cuánto puede tardar en verse un cambio de precio o disponibilidad.
-- **Sin agrupar peticiones simultáneas del mismo producto en la caché.** Spring permite que, si varias peticiones piden a la vez un dato que no está en caché, solo una llame al API (`sync = true`). Se probó y se descartó: con un producto que siempre agota el timeout, las peticiones que esperaban lo reintentaban una detrás de otra y acumulaban esperas de 20–30 s. Hacerlo bien requeriría una caché asíncrona en la que todas compartan el mismo resultado, también el error; queda como mejora posible.
+- **Sin agrupar peticiones simultáneas del mismo producto en la caché.** Spring permite que, si varias peticiones piden a la vez un dato que no está en caché, solo una llame al API (`sync = true`). Se probó y se descartó: con un producto que siempre agota el timeout, las peticiones que esperaban lo reintentaban una detrás de otra y acumulaban esperas de 20–30 s.
 - **Los productos similares que fallan se descartan.** Si el detalle de un similar no existe o no se puede obtener, se omite de la respuesta y se devuelven los demás en su orden. Es preferible mostrar parte de los similares a no mostrar ninguno.
 - **Los similares descartados quedan en el log y en una métrica.** El log da el detalle de cada caso (qué producto y por qué); la métrica `similar.products.skipped`, con el motivo (`not_found` o `unavailable`) como etiqueta, permite vigilar cuántos se descartan. Se consulta en `/actuator/metrics/similar.products.skipped`.
-- **Códigos de respuesta.** 404 si el producto no existe, como indica el contrato. Si falla la consulta de los ids similares, 502 (Bad Gateway): el contrato no contempla este caso y es el código estándar cuando falla un servicio del que se depende.
-- **Controller escrito a mano.** Con un único endpoint es lo más claro; con más endpoints, generaría la interfaz y los modelos a partir del contrato OpenAPI (API-first) para que código y contrato no se desincronicen.
+
+## Mejoras posibles
+
+- **Caché asíncrona que comparta el resultado entre peticiones simultáneas**, también cuando es un error, para que solo una llame al API sin que las demás reintenten una detrás de otra.
+- **Caché compartida** (por ejemplo, Redis) si el servicio se despliega en varias instancias: ahora cada instancia tiene la suya.
+- **Generar el controller y los modelos a partir del contrato OpenAPI (API-first)** cuando haya más endpoints, para que código y contrato no se desincronicen.
+- **Enviar las métricas a un sistema como Prometheus**, para tener histórico y alertas.
