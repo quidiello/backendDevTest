@@ -38,6 +38,28 @@ Los mocks responden en `http://localhost:3001` y los resultados se ven en [Grafa
 
 Para comparar ejecuciones, conviene reiniciar el mock antes de cada una (`docker compose restart simulado`): arrastra las respuestas lentas pendientes de la ejecución anterior y los resultados salen peores.
 
+### Evolución
+
+Resultados del test tras cada paso, con el mock reiniciado antes de cada ejecución. Es una ejecución por paso: sirven para ver la tendencia, no como cifras exactas.
+
+Cada celda tiene dos valores, `peticiones completadas · tiempo medio de respuesta`:
+
+- **Peticiones completadas:** cada escenario son 200 usuarios durante 10 s; cada usuario hace una petición, espera la respuesta, descansa 0,5 s y repite. Cuanto más rápida es la respuesta, más peticiones se completan. Si la respuesta fuera instantánea, cada usuario completaría 20 (10 s / 0,5 s), así que el máximo teórico es 4000.
+- **Tiempo medio de respuesta** de esas peticiones.
+
+| Paso | normal | slow | verySlow |
+| ---- | ------ | ---- | -------- |
+| Llamadas secuenciales | 2863 · 207 ms | 400 · 6,3 s | 0 · — |
+| Llamadas en paralelo | 2821 · 217 ms | 400 · 5,2 s | 0 · — |
+| Límite de llamadas simultáneas (300) | 2870 · 207 ms | 452 · 4,8 s | 172 · 2,0 s |
+| Timeout de lectura (10 s) | 2878 · 204 ms | 442 · 4,8 s | 327 · 7,1 s |
+| Caché | 3799 · 42 ms | 1898 · 0,6 s | 200 · 10,1 s |
+| Ajuste de timeout y límite (6 s, 600) | 3799 · 32 ms | 2000 · 0,5 s | 400 · 6,0 s |
+
+- Sin timeout, las peticiones de `verySlow` no terminan durante el test.
+- Con el límite, parte de las respuestas de `verySlow` son rápidas porque descartan similares por falta de plaza. Con la caché casi todas las llamadas se resuelven en memoria, apenas faltan plazas y las respuestas de `verySlow` tardan lo que el timeout.
+- El ajuste final se eligió probando varias combinaciones de timeout y límite: es la que no descarta similares válidos y responde antes.
+
 ## Stack
 
 Java 25 · Spring Boot 4 (Spring MVC con virtual threads, RestClient, Actuator) · Caffeine · Micrometer · Maven · JUnit 5 + AssertJ + Mockito + WireMock.
