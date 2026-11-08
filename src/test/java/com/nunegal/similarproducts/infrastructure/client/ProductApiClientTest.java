@@ -181,7 +181,33 @@ class ProductApiClientTest {
     }
 
     @Test
-    void doesNotCallTheApiAgainForAProductThatJustFailed() {
+    void doesNotCallTheApiAgainForAProductThatJustTimedOut() {
+        stubFor(get("/product/100").willReturn(okJson(
+                "{\"id\":\"100\",\"name\":\"Trousers\",\"price\":49.99,\"availability\":false}")
+                .withFixedDelay((int) READ_TIMEOUT.multipliedBy(2).toMillis())));
+
+        assertThatThrownBy(() -> client.findById("100"))
+                .isInstanceOf(ProductServiceUnavailableException.class);
+        assertThatThrownBy(() -> client.findById("100"))
+                .isInstanceOf(ProductServiceUnavailableException.class);
+
+        verify(1, getRequestedFor(urlEqualTo("/product/100")));
+    }
+
+    @Test
+    void callsTheApiAgainAfterAConnectionError() {
+        stubFor(get("/product/1").willReturn(aResponse().withFault(Fault.CONNECTION_RESET_BY_PEER)));
+        assertThatThrownBy(() -> client.findById("1"))
+                .isInstanceOf(ProductServiceUnavailableException.class);
+
+        stubFor(get("/product/1").willReturn(okJson(
+                "{\"id\":\"1\",\"name\":\"Shirt\",\"price\":9.99,\"availability\":true}")));
+
+        assertThat(client.findById("1")).isPresent();
+    }
+
+    @Test
+    void doesNotCallTheApiAgainForAProductThatJustFailedWithServerError() {
         stubFor(get("/product/6").willReturn(serverError()));
 
         assertThatThrownBy(() -> client.findById("6"))

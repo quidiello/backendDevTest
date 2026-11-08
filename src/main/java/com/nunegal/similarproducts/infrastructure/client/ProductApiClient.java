@@ -7,6 +7,7 @@ import com.nunegal.similarproducts.domain.ProductNotFoundException;
 import com.nunegal.similarproducts.domain.ProductRepository;
 import com.nunegal.similarproducts.domain.ProductServiceUnavailableException;
 import java.net.http.HttpClient;
+import java.net.http.HttpTimeoutException;
 import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
@@ -19,6 +20,7 @@ import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.HttpClientErrorException;
+import org.springframework.web.client.HttpServerErrorException;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 
@@ -88,11 +90,18 @@ public class ProductApiClient implements ProductRepository {
             return Optional.empty();
         } catch (RestClientException e) {
             log.warn("Could not get detail of product {}: {}", productId, e.getMessage());
-            recentlyFailed.put(productId, true);
+            if (isFailureOfTheProduct(e)) {
+                recentlyFailed.put(productId, true);
+            }
             throw new ProductServiceUnavailableException("Could not get detail of product " + productId, e);
         } finally {
             slots.release();
         }
+    }
+
+    // Connection errors are usually transient, so they are not remembered.
+    private static boolean isFailureOfTheProduct(RestClientException e) {
+        return e instanceof HttpServerErrorException || e.getCause() instanceof HttpTimeoutException;
     }
 
     private void acquireSlot() {
