@@ -52,6 +52,10 @@ public class SimilarProductsService {
             log.debug("Skipping similar product {}: {}", productId, e.getMessage());
             countSkipped("unavailable");
             return Optional.empty();
+        } catch (RuntimeException e) {
+            log.error("Skipping similar product {} after an unexpected error", productId, e);
+            countSkipped("unavailable");
+            return Optional.empty();
         }
     }
 

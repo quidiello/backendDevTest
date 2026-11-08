@@ -7,6 +7,7 @@ import com.nunegal.similarproducts.domain.ProductNotFoundException;
 import com.nunegal.similarproducts.domain.ProductRepository;
 import com.nunegal.similarproducts.domain.ProductServiceUnavailableException;
 import java.net.http.HttpClient;
+import java.net.http.HttpConnectTimeoutException;
 import java.net.http.HttpTimeoutException;
 import java.time.Duration;
 import java.util.List;
@@ -82,10 +83,15 @@ public class ProductApiClient implements ProductRepository {
         }
         acquireSlot();
         try {
-            return Optional.ofNullable(restClient.get()
+            var product = restClient.get()
                     .uri("/product/{productId}", productId)
                     .retrieve()
-                    .body(ProductDetail.class));
+                    .body(ProductDetail.class);
+            if (product == null) {
+                log.warn("Could not get detail of product {}: empty response", productId);
+                throw new ProductServiceUnavailableException("Empty detail of product " + productId);
+            }
+            return Optional.of(product);
         } catch (HttpClientErrorException.NotFound e) {
             return Optional.empty();
         } catch (RestClientException e) {
@@ -99,9 +105,10 @@ public class ProductApiClient implements ProductRepository {
         }
     }
 
-    // Connection errors are usually transient, so they are not remembered.
-    private static boolean isFailureOfTheProduct(RestClientException e) {
-        return e instanceof HttpServerErrorException || e.getCause() instanceof HttpTimeoutException;
+    // Connection errors, including connect timeouts, are usually transient, so they are not remembered.
+    static boolean isFailureOfTheProduct(RestClientException e) {
+        return e instanceof HttpServerErrorException
+                || (e.getCause() instanceof HttpTimeoutException && !(e.getCause() instanceof HttpConnectTimeoutException));
     }
 
     private void acquireSlot() {

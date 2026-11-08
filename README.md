@@ -99,6 +99,7 @@ src/main/java/com/nunegal/similarproducts/
 | `SimilarProductsServiceTest` | El caso de uso, con el repositorio simulado con Mockito: orden, llamadas en paralelo, similares descartados y la métrica |
 | `ProductApiClientTest` | El cliente contra un API simulado con WireMock: respuestas, errores, timeouts y el límite de llamadas simultáneas |
 | `ProductApiClientCacheTest` | Qué se guarda en la caché y qué no |
+| `ProductApiPropertiesTest` | Que la configuración del cliente rechaza valores sin sentido, como un timeout de 0 |
 | `SimilarProductsControllerTest` | El endpoint: respuesta y códigos de error |
 | `SimilarProductsIntegrationTest` | De extremo a extremo, con la aplicación completa y los APIs simulados con WireMock |
 

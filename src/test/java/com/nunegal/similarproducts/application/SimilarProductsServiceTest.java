@@ -107,6 +107,16 @@ class SimilarProductsServiceTest {
     }
 
     @Test
+    void skipsSimilarProductsWhoseDetailFailsUnexpectedly() {
+        when(productRepository.findSimilarIds("1")).thenReturn(List.of("2", "6", "3"));
+        when(productRepository.findById("2")).thenReturn(Optional.of(DRESS));
+        when(productRepository.findById("6")).thenThrow(new IllegalStateException("boom"));
+        when(productRepository.findById("3")).thenReturn(Optional.of(BLAZER));
+
+        assertThat(service.findSimilarProducts("1")).containsExactly(DRESS, BLAZER);
+    }
+
+    @Test
     void countsTheSkippedSimilarProductsByReason() {
         when(productRepository.findSimilarIds("1")).thenReturn(List.of("2", "5", "6", "7"));
         when(productRepository.findById("2")).thenReturn(Optional.of(DRESS));

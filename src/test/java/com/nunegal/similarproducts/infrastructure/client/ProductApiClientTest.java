@@ -23,10 +23,12 @@ import com.nunegal.similarproducts.domain.ProductNotFoundException;
 import com.nunegal.similarproducts.domain.ProductServiceUnavailableException;
 import java.math.BigDecimal;
 import java.net.URI;
+import java.net.http.HttpConnectTimeoutException;
 import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
 
 @WireMockTest
@@ -125,6 +127,14 @@ class ProductApiClientTest {
     }
 
     @Test
+    void throwsUnavailableWhenTheProductDetailComesWithAnEmptyBody() {
+        stubFor(get("/product/1").willReturn(ok()));
+
+        assertThatThrownBy(() -> client.findById("1"))
+                .isInstanceOf(ProductServiceUnavailableException.class);
+    }
+
+    @Test
     void throwsUnavailableWhenTheProductDetailFailsWithServerError() {
         stubFor(get("/product/6").willReturn(serverError()));
 
@@ -204,6 +214,13 @@ class ProductApiClientTest {
                 "{\"id\":\"1\",\"name\":\"Shirt\",\"price\":9.99,\"availability\":true}")));
 
         assertThat(client.findById("1")).isPresent();
+    }
+
+    @Test
+    void doesNotTreatAConnectTimeoutAsAFailureOfTheProduct() {
+        var connectTimeout = new ResourceAccessException("I/O error", new HttpConnectTimeoutException("timed out"));
+
+        assertThat(ProductApiClient.isFailureOfTheProduct(connectTimeout)).isFalse();
     }
 
     @Test
